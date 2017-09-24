@@ -1,7 +1,7 @@
 from copy import copy
 import numpy as np
 from batch_gen import BatchGen
-from utils import softmax, logloss, dot12
+from utils import softmax, logloss, dot12, flash
 
 
 class DNN(object):
@@ -29,6 +29,7 @@ class DNN(object):
         return self._feedforward(X)
 
     def __iter__(self):
+        self._curr = 0
         return self
 
     def next(self):
@@ -70,6 +71,9 @@ class DNN(object):
         return self.output
 
     def _backprop(self, true, debug=False):
+        if debug:
+            print 'Output shape : {}'.format(self.output.shape)
+            print 'True output shape : {}'.format(true.shape)
         loss, grad = self.loss(self.output, true, output_grad=True)
         if debug:
             print 'loss backprop OK !'
@@ -88,14 +92,16 @@ class DNN(object):
 
     def train(self, X, y, batch_size=32, n_epochs=20, shuffle=True):
         for i in xrange(n_epochs):
+            print 'Epoch {} / {}'.format(i + 1, n_epochs)
             batch_gen = BatchGen(X, y, batch_size, shuffle=shuffle)
-            for Xb, yb in batch_gen:
+            for j, (Xb, yb) in enumerate(batch_gen):
+                flash('Batch', j, batch_gen.n_batches)
                 _ = self._feedforward(Xb)
                 self._backprop(yb)
 
-    def apply(self, X, batch_size):
+    def apply(self, X, batch_size=32):
         r = []
-        batch_gen = BatchGen(X, None, batch_size, shuffle=shuffle)
+        batch_gen = BatchGen(X, None, batch_size, shuffle=False)
         for Xb in batch_gen:
             rb = self._feedforward(Xb)
             r.append(rb)

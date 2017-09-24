@@ -1,5 +1,13 @@
 import numpy as np
 from numpy.core.umath_tests import matrix_multiply
+import sys
+
+def flash(s, curr, limit):
+    if curr == limit - 1:
+        print '\r{} {} / {}'.format(s, limit, limit)
+    else:
+        sys.stdout.write('\r{} {} / {}'.format(s, curr + 1, limit))
+        sys.stdout.flush()
 
 def softmax(x, eps=1e-12):
     expo = np.exp(x)
