@@ -1,7 +1,7 @@
 from copy import copy
 import numpy as np
 from batch_gen import BatchGen
-from utils import softmax, logloss, dot12, flash
+from utils import softmax, logloss, dot12, outer12, flash
 
 
 class DNN(object):
@@ -33,7 +33,7 @@ class DNN(object):
         return self
 
     def next(self):
-        if self._curr > 2 * self.n_dense - 1:
+        if self._curr > self.n_dense - 1:
             raise StopIteration
         else:
             self._curr += 1
@@ -41,25 +41,28 @@ class DNN(object):
 
     def _layers(self):
         layers = []
-        if type(self.neurons) is int:
-            layers.append(DLayer(self.n_in, self.neurons, self.activation, self.weight_init, self.bias_init))
-            layers.append(Activation.from_str(self.activation))
-            for _ in xrange(1, self.n_dense - 1):
-                layers.append(DLayer(layers[-2], self.neurons, self.activation, self.weight_init, self.bias_init))
-                layers.append(Activation.from_str(self.activation))
-        elif type(self.neurons) is list:
-            if len(self.neurons) == self.n_dense - 1 and type(self.neurons[0]) is int:
-                layers.append(DLayer(self.n_in, self.neurons[0], self.activation, self.weight_init, self.bias_init))
-                layers.append(Activation.from_str(self.activation))
-                for ns in neurons[1:]:
-                    layers.append(DLayer(layers[-2], ns, self.activation, self.weight_init, self.bias_init))
-                    layers.append(Activation.from_str(self.activation))
+        if self.n_dense > 1:
+            if type(self.neurons) is int:
+                layers.append(DLayer(self.n_in, self.neurons, self.activation, self.weight_init, self.bias_init))
+                #layers.append(Activation.from_str(self.activation))
+                for _ in xrange(1, self.n_dense - 1):
+                    layers.append(DLayer(layers[-1], self.neurons, self.activation, self.weight_init, self.bias_init))
+                    #layers.append(Activation.from_str(self.activation))
+            elif type(self.neurons) is list:
+                if len(self.neurons) == self.n_dense - 1 and type(self.neurons[0]) is int:
+                    layers.append(DLayer(self.n_in, self.neurons[0], self.activation, self.weight_init, self.bias_init))
+                    #layers.append(Activation.from_str(self.activation))
+                    for ns in neurons[1:]:
+                        layers.append(DLayer(layers[-1], ns, self.activation, self.weight_init, self.bias_init))
+                        #layers.append(Activation.from_str(self.activation))
+                else:
+                    raise ValueError('Nope.')
             else:
                 raise ValueError('Nope.')
+            layers.append(DLayer(layers[-1], self.n_softmax, 'softmax', self.weight_init, self.bias_init))
         else:
-            raise ValueError('Nope.')
-        layers.append(DLayer(layers[-2], self.n_softmax, 'softmax', self.weight_init, self.bias_init))
-        layers.append(Activation.from_str('softmax'))
+            layers.append(DLayer(self.n_in, self.n_softmax, 'softmax', self.weight_init, self.bias_init))
+        #layers.append(Activation.from_str('softmax'))
         return layers
 
     def _feedforward(self, X):
@@ -67,10 +70,12 @@ class DNN(object):
         Xc = copy(X)
         for layer in self:
             Xc = layer(Xc)
+            #if type(layer) is DLayer:
+            #    print 'dense output : ', Xc
         self.output = Xc
         return self.output
 
-    def _backprop(self, true, debug=False):
+    def _backprop(self, true, debug=False, return_grad=False):
         if debug:
             print 'Output shape : {}'.format(self.output.shape)
             print 'True output shape : {}'.format(true.shape)
@@ -89,6 +94,8 @@ class DNN(object):
             grad = dot12(lgrad, grad)
             if debug:
                 print 'layer {} from end -> tensordot OK !'.format(i + 1)
+        if return_grad:
+            return grad
 
     def train(self, X, y, batch_size=32, n_epochs=20, shuffle=True):
         for i in xrange(n_epochs):
@@ -113,7 +120,7 @@ class DLayer(object):
     def __init__(self, prev, ncurr, activation, weight_init, bias_init, W=None, b=None):
         self.prev = prev
         self.ncurr = ncurr
-        self.activation = activation
+        self.activation = Activation.from_str(activation)
         self.weight_init = weight_init
         self.bias_init = bias_init
         self.W = W
@@ -156,13 +163,19 @@ class DLayer(object):
     def _feedforward(self, X):
         self.X = X
         self.output = np.dot(X, self.W) + self.b
-        return self.output
+        print 'dense output : ', self.output 
+        return self.activation(self.output)
 
     def _backprop(self):
+        # calculate gradient of activation
+        self.act_grad, self.act_bprop = self.activation._backprop()
+
         # calculate gradient wrt to input
-        # print 'GG'
-        # print self.X.shape[0]
         inp_grad = np.repeat(self.W[np.newaxis, :], self.X.shape[0], axis=0)
+        if self.act_bprop == 'mul':
+            inp_grad = inp_grad * self.act_grad[:, np.newaxis, :]
+        else:
+            inp_grad = dot12(inp_grad, self.act_grad)
         # calculate gradient wrt to parameters
         self.W_grad = np.zeros(self.X.shape + (self.W.shape[1],) + (self.W.shape[1],), dtype=np.float32)
         for i in xrange(self.W.shape[1]):
@@ -189,8 +202,23 @@ class DLayer(object):
     def _update(self, grad, optimizer, lr):
         self.X = None
         self.output = None
-        W_grad = dot12(self.W_grad, grad)
-        b_grad = dot12(self.b_grad, grad)
+        #print len(grad)
+        #print grad[0]
+        #print 'zoulou'
+        #print grad[1]
+        #print type(grad)
+        #print type(self.act_grad)
+        if self.act_bprop == 'dot':
+            grad = dot12(self.act_grad, grad)
+            W_grad = dot12(self.W_grad, grad)
+            b_grad = dot12(self.b_grad, grad)
+        else:
+            self.W_grad = self.W_grad * self.act_grad[:, np.newaxis, np.newaxis, :]
+            self.b_grad = self.b_grad * self.act_grad[:, np.newaxis, :]
+            W_grad = dot12(self.W_grad, grad)
+            b_grad = dot12(self.b_grad, grad)
+        print 'w grad : ', np.mean(W_grad, axis=0) 
+        print 'b grad : ', np.mean(b_grad, axis=0)
         try:
             self.W = self.W - np.mean(W_grad, axis=0) * optimizer(lr)
         except ValueError:
@@ -202,6 +230,8 @@ class DLayer(object):
         self.b = self.b - np.mean(b_grad, axis=0) * optimizer(lr)
         self.W_grad = None
         self.b_grad = None
+        self.act_grad = None
+        self.act_bprop = None
 
 
 class Activation(object):
@@ -229,16 +259,22 @@ class Activation(object):
 
     def _backprop(self):
         if self._funcname == 'relu':
-            grad = np.zeros((self.output.shape[0], self.output.shape[1], self.output.shape[1]))
-            inds_diag = np.arange(self.output.shape[1])
-            grad[:, inds_diag, inds_diag] = np.clip(np.ceil(self.X), 0., 1.)
-            return grad                                  # shape OK
+            # grad = np.zeros((self.output.shape[0], self.output.shape[1], self.output.shape[1]))
+            # inds_diag = np.arange(self.output.shape[1])
+            # grad[:, inds_diag, inds_diag] = np.clip(np.ceil(self.X), 0., 1.)
+            # return grad                                  # shape OK
+            grad = np.clip(np.ceil(self.X), 0., 1.)
+            return grad, 'mul'
         elif self._funcname == 'softmax':
-            outc_diag = np.zeros((self.output.shape[0], self.output.shape[1], self.output.shape[1]))
+            # outc_diag = np.zeros((self.output.shape[0], self.output.shape[1], self.output.shape[1]))
+            # inds_diag = np.arange(self.output.shape[1])
+            # outc_diag[:, inds_diag, inds_diag] = self.output
+            # grad = outc_diag - self.output[:, np.newaxis, :] ** 2  # shape OK
+            # return grad
             inds_diag = np.arange(self.output.shape[1])
-            outc_diag[:, inds_diag, inds_diag] = self.output
-            grad = outc_diag - self.output[:, np.newaxis, :] ** 2  # shape OK
-            return grad
+            grad = -1. * outer12(self.output)
+            grad[:, inds_diag, inds_diag] += self.output
+            return grad, 'dot'
         else:
             raise ValueError('Nope.')
 
@@ -269,18 +305,30 @@ class Loss(object):
 
     def _feedforward(self, y, yt):
         self.y = y
-        self.output = self._func(y, yt)
+        self.yt = yt
+        self.output = self._func(self.y, self.yt)
+        print 'loss : ', self.output
         return self.output
 
     def _backprop(self):
         if self._funcname == 'crossentropy':
-            grad = - (np.log(10.) / self.y.shape[0]) * (1. / self.y)  # shape OK
-            return grad
+            # grad = - (np.log(10.) / self.y.shape[0]) * (1. / self.y)  # shape OK
+            N = self.y.shape[0]
+            nc = self.y.shape[1]
+            if self.yt.ndim == 1:
+                mask = np.eye(nc)[self.yt]
+            else:
+                mask = self.yt
+            print 'mask : ', mask
+            grad = - (1. / (N * self.y))
+            print 'loss grad wrt to softmax output : ', mask * grad
+            return mask * grad
         else:
             raise ValueError('Nope.')
 
     def _update(self, grad, optimizer, lr):
         self.y = None
+        self.yt = None
         self.output = None
         pass
 

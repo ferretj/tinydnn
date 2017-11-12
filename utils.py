@@ -11,14 +11,17 @@ def flash(s, curr, limit):
 
 def softmax(x, eps=1e-12):
     expo = np.exp(x)
-    return expo / (np.sum(expo) + eps)
+    return expo / (np.sum(expo, axis=1)[:, np.newaxis] + eps)
 
-def logloss(x, y):
+def logloss(x, y, eps=1e-12):
     if y.ndim == 1:
         n_classes = len(np.unique(y))
         y = np.eye(n_classes)[y]
-    logx = np.log(np.clip(x, 0., 1.))
+    logx = np.log(np.clip(x, eps, 1. - eps))
     return - np.mean(np.sum(np.multiply(logx, y), axis=1))
+
+def outer12(a):
+    return np.einsum('ij,ik->ijk', a, a)
 
 def dot12(a, b):
     if a.ndim == b.ndim == 3:
