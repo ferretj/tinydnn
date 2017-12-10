@@ -44,17 +44,13 @@ class DNN(object):
         if self.n_dense > 1:
             if type(self.neurons) is int:
                 layers.append(DLayer(self.n_in, self.neurons, self.activation, self.weight_init, self.bias_init))
-                #layers.append(Activation.from_str(self.activation))
                 for _ in xrange(1, self.n_dense - 1):
                     layers.append(DLayer(layers[-1], self.neurons, self.activation, self.weight_init, self.bias_init))
-                    #layers.append(Activation.from_str(self.activation))
             elif type(self.neurons) is list:
                 if len(self.neurons) == self.n_dense - 1 and type(self.neurons[0]) is int:
                     layers.append(DLayer(self.n_in, self.neurons[0], self.activation, self.weight_init, self.bias_init))
-                    #layers.append(Activation.from_str(self.activation))
                     for ns in neurons[1:]:
                         layers.append(DLayer(layers[-1], ns, self.activation, self.weight_init, self.bias_init))
-                        #layers.append(Activation.from_str(self.activation))
                 else:
                     raise ValueError('Nope.')
             else:
@@ -62,7 +58,6 @@ class DNN(object):
             layers.append(DLayer(layers[-1], self.n_softmax, 'softmax', self.weight_init, self.bias_init))
         else:
             layers.append(DLayer(self.n_in, self.n_softmax, 'softmax', self.weight_init, self.bias_init))
-        #layers.append(Activation.from_str('softmax'))
         return layers
 
     def _feedforward(self, X):
@@ -70,8 +65,6 @@ class DNN(object):
         Xc = copy(X)
         for layer in self:
             Xc = layer(Xc)
-            #if type(layer) is DLayer:
-            #    print 'dense output : ', Xc
         self.output = Xc
         return self.output
 
@@ -202,14 +195,9 @@ class DLayer(object):
     def _update(self, grad, optimizer, lr):
         self.X = None
         self.output = None
-        #print len(grad)
-        #print grad[0]
-        #print 'zoulou'
-        #print grad[1]
-        #print type(grad)
-        #print type(self.act_grad)
         if self.act_bprop == 'dot':
             grad = dot12(self.act_grad, grad)
+            print 'grad inter : ', grad
             W_grad = dot12(self.W_grad, grad)
             b_grad = dot12(self.b_grad, grad)
         else:
@@ -259,18 +247,9 @@ class Activation(object):
 
     def _backprop(self):
         if self._funcname == 'relu':
-            # grad = np.zeros((self.output.shape[0], self.output.shape[1], self.output.shape[1]))
-            # inds_diag = np.arange(self.output.shape[1])
-            # grad[:, inds_diag, inds_diag] = np.clip(np.ceil(self.X), 0., 1.)
-            # return grad                                  # shape OK
             grad = np.clip(np.ceil(self.X), 0., 1.)
             return grad, 'mul'
         elif self._funcname == 'softmax':
-            # outc_diag = np.zeros((self.output.shape[0], self.output.shape[1], self.output.shape[1]))
-            # inds_diag = np.arange(self.output.shape[1])
-            # outc_diag[:, inds_diag, inds_diag] = self.output
-            # grad = outc_diag - self.output[:, np.newaxis, :] ** 2  # shape OK
-            # return grad
             inds_diag = np.arange(self.output.shape[1])
             grad = -1. * outer12(self.output)
             grad[:, inds_diag, inds_diag] += self.output
@@ -312,7 +291,6 @@ class Loss(object):
 
     def _backprop(self):
         if self._funcname == 'crossentropy':
-            # grad = - (np.log(10.) / self.y.shape[0]) * (1. / self.y)  # shape OK
             N = self.y.shape[0]
             nc = self.y.shape[1]
             if self.yt.ndim == 1:
